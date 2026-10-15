@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<title>Laptop Inspection Checklist</title>
+<style>
+  :root {
+    --bg: #121212; --card: #1E1E1E; --text: #FFFFFF; --muted: #AAAAAA;
+    --accent: #007ACC; --ok: #28A745; --danger: #DC3545; --line: #2E2E2E;
+    --pad: 15px; --tap: 48px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: var(--pad);
+    /* leave room for the fixed footer + iOS home indicator */
+    padding-bottom: calc(var(--tap) + 2 * var(--pad) + 20px + env(safe-area-inset-bottom));
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: .9rem; margin: 0 0 var(--pad); }
+  .card { background: var(--card); border-radius: 12px; padding: var(--pad); margin-bottom: var(--pad); border: 1px solid var(--line); }
+  label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; min-height: var(--tap); padding: 0 12px; margin-bottom: 12px;
+    background: var(--bg); color: var(--text); border: 2px solid #3A3A3A; border-radius: 8px; font-size: 16px;
+  }
+  input[type=text]:last-child { margin-bottom: 0; }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+
+  /* Overall progress */
+  .progress { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; margin-top: 8px; }
+  .progress > div { height: 100%; width: 0; background: var(--ok); transition: width .25s; }
+  .progress-label { display: flex; justify-content: space-between; font-weight: 600; }
+
+  /* Accordion */
+  .acc { padding: 0; overflow: hidden; }
+  .acc-head {
+    width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 0 var(--pad); background: none; border: 0; color: var(--text); font-size: 1rem; font-weight: 700; text-align: left; cursor: pointer;
+  }
+  .badge { flex-shrink: 0; min-width: 52px; text-align: center; padding: 4px 10px; border-radius: 20px; background: #333; color: var(--text); font-size: .9rem; }
+  .badge.done { background: var(--ok); }
+  .chev { transition: transform .2s; color: var(--muted); }
+  .acc.open .chev { transform: rotate(180deg); }
+  .acc-body { display: none; border-top: 1px solid var(--line); }
+  .acc.open .acc-body { display: block; }
+
+  .acc-body { padding: 10px; }
+  .item-card { border: 2px solid var(--line); border-radius: 10px; margin-bottom: 10px; padding: 12px; background: #181818; transition: border-color .15s; }
+  .item-card:last-child { margin-bottom: 0; }
+  .item-card.checked { border-color: var(--ok); }
+  .item-card.issue { border-color: var(--danger); }
+  .item { display: flex; gap: 12px; cursor: pointer; }
+  .cmds { margin: 10px 0 0 60px; display: flex; flex-direction: column; gap: 6px; }
+  .cmd { display: flex; align-items: center; gap: 6px; background: #0B0B0B; border: 1px solid #333; border-radius: 8px; padding: 4px 4px 4px 10px; max-width: 100%; }
+  .cmd code { flex: 1; min-width: 0; color: #4FB3FF; font: 13px/1.3 ui-monospace, Consolas, monospace; overflow-x: auto; white-space: nowrap; }
+  .copy { min-height: 40px; min-width: 64px; padding: 0 10px; border: 1px solid #555; border-radius: 6px; background: #2A2A2A; color: #fff; font-weight: 700; font-size: .8rem; cursor: pointer; flex-shrink: 0; }
+  .copy.done { background: var(--ok); border-color: var(--ok); }
+  .item-tools { margin: 10px 0 0 60px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .issue-btn { min-height: 40px; padding: 0 12px; border: 1px solid #555; border-radius: 6px; background: #2A2A2A; color: var(--text); font-weight: 700; font-size: .85rem; cursor: pointer; }
+  .item-card.issue .issue-btn { background: var(--danger); border-color: var(--danger); }
+  .note { width: 100%; min-height: 44px !important; margin: 0 !important; font-size: 14px !important; }
+  @media (max-width: 420px) { .cmds, .item-tools { margin-left: 0; } }
+  .item input { position: absolute; opacity: 0; pointer-events: none; }
+  .box {
+    flex-shrink: 0; width: var(--tap); height: var(--tap); border: 3px solid #555; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 26px; color: transparent; transition: .15s;
+  }
+  .item input:checked + .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .item input:focus-visible + .box { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .item-title { font-weight: 700; }
+  .item-desc { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+  .item input:checked ~ .item-text .item-title { color: var(--ok); }
+
+  /* Photos */
+  .btn {
+    min-height: var(--tap); padding: 0 16px; border: 0; border-radius: 10px; font-size: 1rem; font-weight: 700;
+    color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-accent { background: var(--accent); width: 100%; }
+  .btn-danger { background: var(--danger); }
+  .btn-ok { background: var(--ok); }
+  .btn:active { filter: brightness(.85); }
+  #photoInput { display: none; }
+  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #000; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb button {
+    position: absolute; top: 0; right: 0; width: var(--tap); height: var(--tap); border: 0; background: transparent; cursor: pointer; padding: 4px;
+    display: flex; align-items: flex-start; justify-content: flex-end;
+  }
+  .thumb button span {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--danger); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px #000;
+  }
+  .empty { color: var(--muted); font-size: .9rem; margin: 10px 0 0; text-align: center; }
+
+  /* Footer */
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; gap: 10px;
+    padding: 10px var(--pad) calc(10px + env(safe-area-inset-bottom)); background: #181818; border-top: 1px solid var(--line);
+  }
+  footer .btn { flex: 1; }
+
+  /* Toast */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(var(--tap) + 40px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
+    background: var(--ok); color: #fff; padding: 12px 18px; border-radius: 10px; font-weight: 700; opacity: 0; pointer-events: none;
+    transition: .25s; max-width: calc(100% - 30px); text-align: center; z-index: 20;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--danger); }
+  /* Inspections list (CRUD) */
+  .topbar { display: flex; gap: 10px; margin-bottom: var(--pad); }
+  .topbar .btn { flex: 1; }
+  .btn-ghost { background: #2A2A2A; }
+  .panel { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; padding: var(--pad); display: none; }
+  .panel.open { display: block; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: var(--pad); }
+  .panel-head h2 { margin: 0; font-size: 1.2rem; }
+  .rec { display: flex; align-items: center; gap: 10px; }
+  .rec.current { border-color: var(--accent); }
+  .rec-main { flex: 1; min-width: 0; min-height: var(--tap); background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; padding: 0; font-size: 1rem; }
+  .rec-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rec-meta { color: var(--muted); font-size: .85rem; }
+  .rec .btn { width: var(--tap); padding: 0; flex-shrink: 0; }
+  .saved-at { color: var(--muted); font-size: .8rem; text-align: center; margin: 0; }
+</style>
+</head>
+<body>
+
+<h1>💻 Laptop Inspection Checklist</h1>
+<p class="sub">Auto-saves on this device. Works offline.</p>
+
+<!-- Inspection records (CRUD) -->
+<div class="topbar">
+  <button type="button" class="btn btn-ghost" id="listBtn">📋 Inspections (<span id="recCount">1</span>)</button>
+  <button type="button" class="btn btn-accent" id="newBtn">＋ New</button>
+</div>
+
+<div class="panel" id="panel" role="dialog" aria-label="Saved inspections">
+  <div class="panel-head">
+    <h2>Saved Inspections</h2>
+    <button type="button" class="btn btn-ghost" id="closePanel" aria-label="Close">✕</button>
+  </div>
+  <div id="recList"></div>
+</div>
+
+<!-- 3. Metadata profile -->
+<section class="card">
+  <label class="field" for="shopName">Shop Name / Counter No.</label>
+  <input type="text" id="shopName" data-meta="shopName" autocomplete="off" placeholder="e.g. Tech Plaza – Counter 14">
+  <label class="field" for="serial">Serial Number (S/N)</label>
+  <input type="text" id="serial" data-meta="serial" autocomplete="off" autocapitalize="characters" placeholder="e.g. PF4XXXXX">
+</section>
+
+<!-- Overall progress -->
+<section class="card">
+  <div class="progress-label"><span>Overall Progress</span><span id="totalCount">0/13</span></div>
+  <div class="progress"><div id="totalBar"></div></div>
+</section>
+
+<!-- 4. Checklist sections are rendered here by JS -->
+<div id="sections"></div>
+
+<!-- 5. Photo capture -->
+<section class="card">
+  <label class="btn btn-accent" for="photoInput">📸 Capture / Upload Image</label>
+  <input type="file" id="photoInput" accept="image/*" multiple>
+  <div class="gallery" id="gallery"></div>
+  <p class="empty" id="galleryEmpty">No photos yet.</p>
+</section>
+
+<p class="saved-at" id="savedAt"></p>
+
+<!-- 6. Action command bar -->
+<footer>
+  <button type="button" class="btn btn-danger" id="resetBtn">↺ Reset</button>
+  <button type="button" class="btn btn-ok" id="saveBtn">✔ Save</button>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  /** LocalStorage key for the whole inspection state. */
+  const STORAGE_KEY = 'tb_inspection_state';
+
+  /** Images are downscaled before storing so several photos fit in the ~5MB LocalStorage quota. */
+  const MAX_IMG_SIDE = 1280;
+  const JPEG_QUALITY = 0.7;
+
+  /** Checklist definition: sections -> items. Item ids are stable keys in the saved state. */
+  const SECTIONS = [
+    { id: 's1', title: 'Pre-Sitdown Triage (The 2-Minute Dealbreakers)', items: [
+      ['BIOS & Security Locks', 'Tap F2 instantly on boot. Verify NO Supervisor Password is set. Ensure Computrace/Absolute status is Disabled/Deactivated.'],
+      ['Screw Tracking & Air Vents', 'Inspect base screws for scratches, stripped heads, or mismatch. Check grilles for white residue or liquid damage signs.'],
+      ['CPU Profile & Fingerprint Device', 'Boot Windows. Check Task Manager for Core Ultra 7 155H. Verify Biometric Devices node exists in Device Manager.'],
+    ]},
+    { id: 's2', title: 'Deep-Dive Inspections (Sit-Down Testing)', items: [
+      ['Storage & Core Health (WinSAT)', "Run CrystalDiskInfo off USB. Verify target drive health >90%. Run 'Get-CimInstance Win32_WinSAT' in Admin PowerShell; verify scores >6.0."],
+      ['5-Min Thermal Stress Test', 'Open cpux.net/cpu-stress-test-online or ://urih.com. Run load alongside HWiNFO. Confirm fan profiles scale cleanly without mechanical noise. Lap check for sharp hot spots.'],
+      ['RAM Bus & Channel Type', "Run 'Get-CimInstance Win32_PhysicalMemory | Select-Object Speed'. Verify speed reaches native 5600MHz across all 32GB layers."],
+      ['Panel Purity (Dead Pixels & IPS)', 'Run deadpixelchecker.com at 100% brightness. Inspect off-axis colors at 178 degrees to verify true IPS performance. Check edges for bleed clouding.'],
+      ['Battery Profile Verification', "Execute 'powercfg /batteryreport'. Check Design Capacity reads ~71,000 mWh. Calculate current health capacity factor (must be >=80%)."],
+      ['Type-C Power Integrity', 'Plug shop charger. Verify active fast charge indicator. Gently wiggle connector at both side Type-C matrix ports to confirm stable internal solder links.'],
+    ]},
+    { id: 's3', title: 'Hardware Peripherals (Media & Matrix Ports)', items: [
+      ['Keyboard Matrix & Backlight', 'Map array arrays via keyboardtester.com. Strike every key, including numpad. Press Fn+Spacebar to check LED uniform spread.'],
+      ['Trackpad & Touch Interface', 'Run multi-finger scroll arrays. If matching optional touchscreen variants, test boundaries and edge mapping with direct touch input.'],
+      ['Full Matrix Port Validation', 'Cycle flash drive across both sides. Test data mounting stability. Plug wired earphones into the 3.5mm jack to ensure audio is clear without static noise.'],
+      ['Media Elements (Cam/Mic/Spk)', 'Open Windows Camera app. Verify electronic shutter alignment. Record clip; listen at 100% volume for buzzing or panel acoustic distortions.'],
+    ]},
+  ];
+
+  /** Copyable commands / URLs per item key. */
+  const COMMANDS = {
+    's2-0': [{ text: 'Get-CimInstance Win32_WinSAT' }],
+    's2-1': [{ text: 'cpux.net/cpu-stress-test-online', url: true }],
+    's2-2': [{ text: 'Get-CimInstance Win32_PhysicalMemory | Select-Object Speed' }],
+    's2-3': [{ text: 'deadpixelchecker.com', url: true }],
+    's2-4': [{ text: 'powercfg /batteryreport' }],
+    's3-0': [{ text: 'keyboardtester.com', url: true }],
+  };
+
+  /** Fresh inspection record schema. */
+  const emptyState = (id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)) =>
+    ({ id, createdAt: Date.now(), meta: { shopName: '', serial: '' }, checks: {}, issues: {}, notes: {}, open: { s1: true }, images: [], savedAt: null });
+
+  /** db = every inspection record; state = the one currently on screen. */
+  let db = { currentId: null, inspections: [] };
+  let state = null;
+  const TOTAL_ITEMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ---------- Persistence layer ---------- */
+
+  /** Serialize state to LocalStorage. Returns false if the write failed (e.g. quota exceeded). */
+  function save() {
+    state.savedAt = Date.now();
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      renderSavedAt();
+      return true;
+    } catch (e) {
+      toast('⚠ Storage full – remove some photos', true);
+      return false;
+    }
+  }
+
+  /** Normalise a stored record over defaults so older payloads stay valid. */
+  const normalise = (r) => {
+    const base = emptyState(r.id);
+    const rec = { ...base, ...r, meta: { ...base.meta, ...r.meta } };
+    if (!Array.isArray(rec.images)) rec.images = [];
+    return rec;
+  };
+
+  /** Load db from LocalStorage (migrates the old single-inspection payload). */
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved.inspections)) db = { currentId: saved.currentId, inspections: saved.inspections.map(normalise) };
+        else if (saved.meta) db = { currentId: null, inspections: [normalise(saved)] };
+      }
+    } catch (e) { /* corrupt or blocked storage: start fresh */ }
+    if (!db.inspections.length) db.inspections.push(emptyState());
+    state = db.inspections.find((r) => r.id === db.currentId) || db.inspections[0];
+    db.currentId = state.id;
+  }
+
+  /* ---------- CRUD on inspection records ---------- */
+
+  const countChecks = (r) => Object.values(r.checks).filter(Boolean).length;
+
+  /** Create: add a blank inspection and switch to it. */
+  function createInspection() {
+    const rec = emptyState();
+    db.inspections.unshift(rec);
+    openInspection(rec.id);
+    toast('New inspection started');
+  }
+
+  /** Read: switch the editor to an existing record (edits then update it in place). */
+  function openInspection(id) {
+    state = db.inspections.find((r) => r.id === id);
+    db.currentId = id;
+    applyStateToDom();
+    closePanel();
+    save();
+    window.scrollTo({ top: 0 });
+  }
+
+  /** Delete: remove a record; always keeps one record on screen. */
+  function deleteInspection(id) {
+    const rec = db.inspections.find((r) => r.id === id);
+    const name = rec.meta.shopName || rec.meta.serial || 'this inspection';
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    db.inspections = db.inspections.filter((r) => r.id !== id);
+    if (!db.inspections.length) db.inspections.push(emptyState());
+    if (id === db.currentId) { state = db.inspections[0]; db.currentId = state.id; applyStateToDom(); }
+    save();
+    renderList();
+    toast('Inspection deleted');
+  }
+
+  /** Render the saved-inspections list. */
+  function renderList() {
+    $('recCount').textContent = db.inspections.length;
+    $('recList').innerHTML = db.inspections.map((r) => {
+      const when = new Date(r.savedAt || r.createdAt).toLocaleString();
+      return `
+        <div class="card rec${r.id === db.currentId ? ' current' : ''}">
+          <button type="button" class="rec-main" data-open="${r.id}">
+            <div class="rec-title">${esc(r.meta.shopName || 'Untitled shop')}</div>
+            <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${TOTAL_ITEMS} ✓ · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
+            <div class="rec-meta">${esc(when)}</div>
+          </button>
+          <button type="button" class="btn btn-danger" data-remove="${r.id}" aria-label="Delete inspection">🗑</button>
+        </div>`;
+    }).join('');
+  }
+
+  function openPanel() { renderList(); $('panel').classList.add('open'); }
+  function closePanel() { $('panel').classList.remove('open'); }
+
+  /* ---------- Rendering ---------- */
+
+  /** Build accordion sections + checklist items once. */
+  function buildSections() {
+    $('sections').innerHTML = SECTIONS.map((sec) => `
+      <section class="card acc" data-sec="${sec.id}">
+        <button type="button" class="acc-head" aria-expanded="false">
+          <span>${esc(sec.title)}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span class="badge" data-badge="${sec.id}">0/${sec.items.length}</span>
+            <span class="chev">▼</span>
+          </span>
+        </button>
+        <div class="acc-body">
+          ${sec.items.map(([title, desc], i) => { const key = `${sec.id}-${i}`; return `
+            <div class="item-card" data-card="${key}">
+              <label class="item">
+                <input type="checkbox" data-check="${key}">
+                <span class="box">✓</span>
+                <span class="item-text">
+                  <div class="item-title">${esc(title)}</div>
+                  <div class="item-desc">${esc(desc)}</div>
+                </span>
+              </label>
+              ${COMMANDS[key] ? `<div class="cmds">${COMMANDS[key].map((c) => `
+                <div class="cmd"><code>${esc(c.text)}</code>
+                  <button type="button" class="copy" data-copy="${esc(c.text)}">📋 ${c.url ? 'Copy URL' : 'Copy'}</button></div>`).join('')}
+              </div>` : ''}
+              <div class="item-tools">
+                <button type="button" class="issue-btn" data-issue="${key}">⚠ Mark Issue</button>
+                <input type="text" class="note" data-note="${key}" placeholder="Notes / readings…" autocomplete="off">
+              </div>
+            </div>`; }).join('')}
+        </div>
+      </section>`).join('');
+  }
+
+  /** Push state into all DOM nodes (used on load and reset). */
+  function applyStateToDom() {
+    document.querySelectorAll('[data-meta]').forEach((el) => { el.value = state.meta[el.dataset.meta] || ''; });
+    document.querySelectorAll('[data-check]').forEach((el) => { el.checked = !!state.checks[el.dataset.check]; });
+    document.querySelectorAll('[data-note]').forEach((el) => { el.value = state.notes[el.dataset.note] || ''; });
+    refreshCards();
+    document.querySelectorAll('.acc').forEach((el) => setOpen(el, !!state.open[el.dataset.sec]));
+    updateCounts();
+    renderGallery();
+    renderSavedAt();
+    renderList();
+  }
+
+  /** Colour each item card: green when checked, red when marked as an issue. */
+  function refreshCards() {
+    document.querySelectorAll('[data-card]').forEach((el) => {
+      const k = el.dataset.card;
+      el.classList.toggle('checked', !!state.checks[k]);
+      el.classList.toggle('issue', !!state.issues[k]);
+      el.querySelector('.issue-btn').textContent = state.issues[k] ? '⚠ Issue Marked' : '⚠ Mark Issue';
+    });
+  }
+
+  /** Copy text to clipboard, with a fallback for non-secure (http/file) pages. */
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch {}
+    ta.remove();
+    return ok;
+  }
+
+  function setOpen(secEl, open) {
+    secEl.classList.toggle('open', open);
+    secEl.querySelector('.acc-head').setAttribute('aria-expanded', String(open));
+  }
+
+  /** Recalculate "x/y" badges and overall progress bar. */
+  function updateCounts() {
+    let done = 0, total = 0;
+    SECTIONS.forEach((sec) => {
+      const n = sec.items.filter((_, i) => state.checks[`${sec.id}-${i}`]).length;
+      const badge = document.querySelector(`[data-badge="${sec.id}"]`);
+      badge.textContent = `${n}/${sec.items.length}`;
+      badge.classList.toggle('done', n === sec.items.length);
+      done += n; total += sec.items.length;
+    });
+    $('totalCount').textContent = `${done}/${total}`;
+    $('totalBar').style.width = `${(done / total) * 100}%`;
+  }
+
+  /** Render the 3-column photo grid with per-image delete handles. */
+  function renderGallery() {
+    $('gallery').innerHTML = state.images.map((src, i) => `
+      <div class="thumb">
+        <img src="${src}" alt="Inspection photo ${i + 1}">
+        <button type="button" data-del="${i}" aria-label="Delete photo ${i + 1}"><span>✕</span></button>
+      </div>`).join('');
+    $('galleryEmpty').style.display = state.images.length ? 'none' : 'block';
+  }
+
+  function renderSavedAt() {
+    $('savedAt').textContent = state.savedAt ? `Last saved ${new Date(state.savedAt).toLocaleTimeString()}` : '';
+  }
+
+  let toastTimer;
+  function toast(msg, isError = false) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('err', isError);
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ---------- Image processing ---------- */
+
+  /** Read a File into a downscaled JPEG Base64 DataURL. */
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = reject;
+        img.onload = () => {
+          const scale = Math.min(1, MAX_IMG_SIDE / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /* ---------- Event wiring ---------- */
+
+  function bindEvents() {
+    // Text fields: save on every keystroke
+    document.querySelectorAll('[data-meta]').forEach((el) =>
+      el.addEventListener('input', () => { state.meta[el.dataset.meta] = el.value; save(); }));
+
+    // Checkboxes + accordion toggles (delegated)
+    $('sections').addEventListener('change', (e) => {
+      const key = e.target.dataset.check;
+      if (!key) return;
+      state.checks[key] = e.target.checked;
+      updateCounts();
+      refreshCards();
+      save();
+    });
+    $('sections').addEventListener('click', (e) => {
+      const head = e.target.closest('.acc-head');
+      if (!head) return;
+      const sec = head.parentElement;
+      const open = !sec.classList.contains('open');
+      setOpen(sec, open);
+      state.open[sec.dataset.sec] = open;
+      save();
+    });
+
+    // Photo capture / upload
+    $('photoInput').addEventListener('change', async (e) => {
+      const files = [...e.target.files];
+      e.target.value = ''; // allow re-selecting the same file
+      for (const file of files) {
+        try {
+          state.images.push(await fileToDataUrl(file));
+          if (!save()) { state.images.pop(); break; } // roll back if quota exceeded
+        } catch { toast('⚠ Could not read image', true); }
+      }
+      renderGallery();
+    });
+
+    // Delete a single photo
+    $('gallery').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-del]');
+      if (!btn) return;
+      state.images.splice(Number(btn.dataset.del), 1);
+      renderGallery();
+      save();
+    });
+
+    // Reset everything
+    $('resetBtn').addEventListener('click', () => {
+      if (!confirm('Reset this inspection? Its text, checks and photos will be erased.')) return;
+      // Clear the current record in place; other saved inspections are kept
+      const fresh = emptyState(state.id);
+      Object.keys(state).forEach((k) => delete state[k]);
+      Object.assign(state, fresh);
+      applyStateToDom();
+      save();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast('Inspection reset');
+    });
+
+    // Manual save + confirmation
+    $('saveBtn').addEventListener('click', () => {
+      if (save()) toast(`✔ Saved locally – ${state.images.length} photo(s), ${Object.values(state.checks).filter(Boolean).length} checks`);
+    });
+
+    // Per-item tools: copy command, mark issue, notes
+    $('sections').addEventListener('click', async (e) => {
+      const copy = e.target.closest('[data-copy]');
+      const issue = e.target.closest('[data-issue]');
+      if (copy) {
+        const ok = await copyText(copy.dataset.copy);
+        const label = copy.textContent;
+        copy.textContent = ok ? '✔ Copied' : '✖ Failed';
+        copy.classList.toggle('done', ok);
+        setTimeout(() => { copy.textContent = label; copy.classList.remove('done'); }, 1500);
+      } else if (issue) {
+        const k = issue.dataset.issue;
+        state.issues[k] = !state.issues[k];
+        refreshCards();
+        renderList();
+        save();
+      }
+    });
+    $('sections').addEventListener('input', (e) => {
+      const k = e.target.dataset.note;
+      if (!k) return;
+      state.notes[k] = e.target.value;
+      save();
+    });
+
+    // Inspection records
+    $('newBtn').addEventListener('click', createInspection);
+    $('listBtn').addEventListener('click', openPanel);
+    $('closePanel').addEventListener('click', closePanel);
+    $('recList').addEventListener('click', (e) => {
+      const o = e.target.closest('[data-open]'), d = e.target.closest('[data-remove]');
+      if (o) openInspection(o.dataset.open);
+      else if (d) deleteInspection(d.dataset.remove);
+    });
+    // Keep list count/title fresh while typing
+    document.querySelectorAll('[data-meta]').forEach((el) => el.addEventListener('input', renderList));
+
+    // Final safety net when the tab is hidden/closed
+    document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  }
+
+  /* ---------- Init ---------- */
+  buildSections();
+  load();
+  applyStateToDom();
+  bindEvents();
+})();
+</script>
+</body>
+</html>
