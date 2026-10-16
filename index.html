@@ -92,6 +92,17 @@
   body.editing #editBtn { background: var(--accent); }
   body.editing .item-title, body.editing .sub-text { text-decoration: underline dotted #4FB3FF; text-underline-offset: 4px; }
 
+  /* Photo viewer */
+  .thumb img { cursor: zoom-in; }
+  .viewer { position: fixed; inset: 0; z-index: 40; background: #000; display: none; flex-direction: column; }
+  .viewer.open { display: flex; }
+  .viewer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px var(--pad); padding-top: calc(10px + env(safe-area-inset-top)); }
+  .viewer-bar:last-child { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .viewer-bar .btn { min-width: var(--tap); }
+  .viewer-bar:last-child .btn { flex: 1; }
+  .viewer-img { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; touch-action: pinch-zoom pan-x pan-y; }
+  .viewer-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
   /* Dialog */
   .dlg { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; padding: var(--pad); }
   .dlg.open { display: flex; }
@@ -235,6 +246,19 @@
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- Full-screen photo viewer -->
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Photo viewer">
+  <div class="viewer-bar">
+    <span id="viewerCount"></span>
+    <button type="button" class="btn btn-ghost" id="viewerClose" aria-label="Close">✕</button>
+  </div>
+  <div class="viewer-img"><img id="viewerImg" alt="Inspection photo"></div>
+  <div class="viewer-bar">
+    <button type="button" class="btn btn-ghost" id="viewerPrev">‹ Prev</button>
+    <button type="button" class="btn btn-ghost" id="viewerNext">Next ›</button>
+  </div>
+</div>
 
 <!-- In-page prompt/confirm dialog -->
 <div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgMsg">
@@ -860,9 +884,43 @@
       renderGallery();
     });
 
-    // Delete a single photo
+    // Photo viewer: tap a thumbnail to open full screen; swipe or Prev/Next to browse
+    let viewIdx = 0, touchX = null;
+    const showPhoto = (i) => {
+      const n = state.images.length;
+      if (!n) return closeViewer();
+      viewIdx = (i + n) % n;
+      $('viewerImg').src = state.images[viewIdx];
+      $('viewerCount').textContent = `${viewIdx + 1} / ${n}`;
+      $('viewerPrev').disabled = $('viewerNext').disabled = n < 2;
+    };
+    const closeViewer = () => { $('viewer').classList.remove('open'); $('viewerImg').removeAttribute('src'); };
+    $('viewerClose').addEventListener('click', closeViewer);
+    $('viewerPrev').addEventListener('click', () => showPhoto(viewIdx - 1));
+    $('viewerNext').addEventListener('click', () => showPhoto(viewIdx + 1));
+    $('viewer').addEventListener('touchstart', (e) => { touchX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+    $('viewer').addEventListener('touchend', (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].clientX - touchX;
+      if (Math.abs(dx) > 60) showPhoto(viewIdx + (dx < 0 ? 1 : -1));
+      touchX = null;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (!$('viewer').classList.contains('open')) return;
+      if (e.key === 'Escape') closeViewer();
+      if (e.key === 'ArrowLeft') showPhoto(viewIdx - 1);
+      if (e.key === 'ArrowRight') showPhoto(viewIdx + 1);
+    });
+
+    // Delete a single photo, or open it in the viewer
     $('gallery').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-del]');
+      const img = e.target.closest('.thumb img');
+      if (img && !btn) {
+        $('viewer').classList.add('open');
+        showPhoto([...$('gallery').querySelectorAll('.thumb img')].indexOf(img));
+        return;
+      }
       if (!btn) return;
       state.images.splice(Number(btn.dataset.del), 1);
       renderGallery();
