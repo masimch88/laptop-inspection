@@ -146,6 +146,11 @@
     <h2>Saved Inspections</h2>
     <button type="button" class="btn btn-ghost" id="closePanel" aria-label="Close">✕</button>
   </div>
+  <div class="topbar">
+    <button type="button" class="btn btn-ghost" id="exportBtn">⬇ Export</button>
+    <label class="btn btn-ghost" for="importInput" style="flex:1">⬆ Import</label>
+    <input type="file" id="importInput" accept="application/json,.json" hidden>
+  </div>
   <div id="recList"></div>
 </div>
 
@@ -328,6 +333,45 @@
           <button type="button" class="btn btn-danger" data-remove="${r.id}" aria-label="Delete inspection">🗑</button>
         </div>`;
     }).join('');
+  }
+
+  /* ---------- Data migration: export / import ---------- */
+
+  /** Export: download every inspection (incl. photos) as a JSON backup file. */
+  function exportData() {
+    const payload = { app: 'tb_inspection', version: 1, exportedAt: new Date().toISOString(), inspections: db.inspections };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `inspections-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast(`⬇ Exported ${db.inspections.length} inspection(s)`);
+  }
+
+  /** Import: merge records from a backup. Same id = replaced, new ids = added. */
+  async function importData(file) {
+    let records;
+    try {
+      const data = JSON.parse(await file.text());
+      // Accept: export file, raw db from LocalStorage, or the old single-inspection format
+      records = Array.isArray(data.inspections) ? data.inspections : data.meta ? [data] : null;
+      if (!records) throw new Error('format');
+      records = records.map(normalise);
+    } catch { toast('⚠ Not a valid inspection backup file', true); return; }
+
+    const replaced = records.filter((r) => db.inspections.some((x) => x.id === r.id)).length;
+    if (!confirm(`Import ${records.length} inspection(s)?` + (replaced ? `\n${replaced} existing record(s) with the same ID will be overwritten.` : ''))) return;
+
+    const backup = db.inspections;
+    const byId = new Map(db.inspections.map((r) => [r.id, r]));
+    records.forEach((r) => byId.set(r.id, r));
+    db.inspections = [...byId.values()].sort((a, b) => (b.savedAt || b.createdAt) - (a.savedAt || a.createdAt));
+    state = db.inspections.find((r) => r.id === db.currentId) || db.inspections[0];
+    db.currentId = state.id;
+    if (!save()) { db.inspections = backup; state = backup.find((r) => r.id === db.currentId) || backup[0]; return; } // roll back on quota error
+    applyStateToDom();
+    toast(`⬆ Imported ${records.length} inspection(s)`);
   }
 
   function openPanel() { renderList(); $('panel').classList.add('open'); }
@@ -566,6 +610,12 @@
     $('newBtn').addEventListener('click', createInspection);
     $('listBtn').addEventListener('click', openPanel);
     $('closePanel').addEventListener('click', closePanel);
+    $('exportBtn').addEventListener('click', exportData);
+    $('importInput').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (f) importData(f);
+    });
     $('recList').addEventListener('click', (e) => {
       const o = e.target.closest('[data-open]'), d = e.target.closest('[data-remove]');
       if (o) openInspection(o.dataset.open);
