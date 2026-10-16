@@ -63,7 +63,34 @@
   .issue-btn { min-height: 40px; padding: 0 12px; border: 1px solid #555; border-radius: 6px; background: #2A2A2A; color: var(--text); font-weight: 700; font-size: .85rem; cursor: pointer; }
   .item-card.issue .issue-btn { background: var(--danger); border-color: var(--danger); }
   .note { width: 100%; min-height: 44px !important; margin: 0 !important; font-size: 14px !important; }
-  @media (max-width: 420px) { .cmds, .item-tools { margin-left: 0; } }
+  .item input:indeterminate + .box { border-color: var(--ok); color: var(--ok); }
+  .item input:indeterminate + .box::before { content: '–'; color: var(--ok); }
+  .item input:indeterminate + .box { font-size: 0; }
+  .item input:indeterminate + .box::before { font-size: 28px; font-weight: 700; }
+
+  /* Sub-checks */
+  .subs { margin: 8px 0 0 60px; display: flex; flex-direction: column; }
+  .sub-row { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); }
+  .sub { flex: 1; display: flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 6px 0; cursor: pointer; }
+  .sub input { position: absolute; opacity: 0; pointer-events: none; }
+  .sbox { flex-shrink: 0; width: 30px; height: 30px; border: 2px solid #555; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: transparent; transition: .15s; }
+  .sub input:checked + .sbox { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .sub input:focus-visible + .sbox { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .sub-text { color: var(--muted); font-size: .92rem; }
+  .sub input:checked ~ .sub-text { color: var(--text); text-decoration: line-through; text-decoration-color: #666; }
+
+  /* Edit mode */
+  .ed-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .ed { min-width: 44px; min-height: 44px; padding: 0 10px; border: 1px solid #444; border-radius: 8px; background: #2A2A2A; color: var(--text); font-size: .95rem; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+  .ed:active { background: var(--accent); }
+  .ed-pos { margin-left: auto; color: var(--muted); font-size: .85rem; }
+  .add-btn { min-height: var(--tap); margin-top: 6px; border: 2px dashed #444; border-radius: 8px; background: transparent; color: #4FB3FF; font-weight: 700; font-size: .95rem; cursor: pointer; width: 100%; }
+  .add-item { margin-top: 0; }
+  body.editing .item-card { border-style: dashed; }
+  .item-card.moved { border-color: var(--accent) !important; }
+  #editBtn { background: #2A2A2A; }
+  body.editing #editBtn { background: var(--accent); }
+  @media (max-width: 420px) { .cmds, .item-tools, .subs { margin-left: 0; } }
   .item input { position: absolute; opacity: 0; pointer-events: none; }
   .box {
     flex-shrink: 0; width: var(--tap); height: var(--tap); border: 3px solid #555; border-radius: 10px;
@@ -115,7 +142,7 @@
   .toast.err { background: var(--danger); }
   /* Inspections list (CRUD) */
   .topbar { display: flex; gap: 10px; margin-bottom: var(--pad); }
-  .topbar .btn { flex: 1; }
+  .topbar .btn { flex: 1; min-width: 0; white-space: nowrap; }
   .btn-ghost { background: #2A2A2A; }
   .panel { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; padding: var(--pad); display: none; }
   .panel.open { display: block; }
@@ -137,7 +164,7 @@
 
 <!-- Inspection records (CRUD) -->
 <div class="topbar">
-  <button type="button" class="btn btn-ghost" id="listBtn">📋 Inspections (<span id="recCount">1</span>)</button>
+  <button type="button" class="btn btn-ghost" id="listBtn"><span>📋 Inspections (<span id="recCount">1</span>)</span></button>
   <button type="button" class="btn btn-accent" id="newBtn">＋ New</button>
 </div>
 
@@ -166,6 +193,7 @@
 <section class="card">
   <div class="progress-label"><span>Overall Progress</span><span id="totalCount">0/13</span></div>
   <div class="progress"><div id="totalBar"></div></div>
+  <button type="button" class="btn btn-ghost" id="editBtn" style="width:100%;margin-top:12px">✎ Edit Checklist</button>
 </section>
 
 <!-- 4. Checklist sections are rendered here by JS -->
@@ -223,7 +251,7 @@
     ]},
   ];
 
-  /** Copyable commands / URLs per item key. */
+  /** Copyable commands / URLs per default item key. */
   const COMMANDS = {
     's2-0': [{ text: 'Get-CimInstance Win32_WinSAT' }],
     's2-1': [{ text: 'cpux.net/cpu-stress-test-online', url: true }],
@@ -233,14 +261,42 @@
     's3-0': [{ text: 'keyboardtester.com', url: true }],
   };
 
-  /** Fresh inspection record schema. */
-  const emptyState = (id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)) =>
-    ({ id, createdAt: Date.now(), meta: { shopName: '', serial: '' }, checks: {}, issues: {}, notes: {}, open: { s1: true }, images: [], savedAt: null });
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-  /** db = every inspection record; state = the one currently on screen. */
-  let db = { currentId: null, inspections: [] };
+  /**
+   * Build the default editable checklist template from SECTIONS.
+   * Each description is split into sentence-level sub-checks.
+   * Default item ids keep the old "s1-0" keys so existing saved checks still match.
+   */
+  function defaultTemplate() {
+    return SECTIONS.map((sec) => ({
+      id: sec.id,
+      title: sec.title,
+      items: sec.items.map(([title, desc], i) => {
+        const id = `${sec.id}-${i}`;
+        return {
+          id, title,
+          subs: desc.split(/(?<=\.)\s+(?=[A-Z'"])/).map((text, j) => ({ id: `${id}-${j}`, text: text.trim() })),
+          cmds: COMMANDS[id] || [],
+        };
+      }),
+    }));
+  }
+
+  /** Fresh inspection record schema. subs = sub-check states keyed by sub id. */
+  const emptyState = (id = uid()) =>
+    ({ id, createdAt: Date.now(), meta: { shopName: '', serial: '' }, checks: {}, subs: {}, issues: {}, notes: {}, open: { s1: true }, images: [], savedAt: null });
+
+  /** db = checklist template + every inspection record; state = the record on screen. */
+  let db = { currentId: null, template: defaultTemplate(), inspections: [] };
   let state = null;
-  const TOTAL_ITEMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
+  let editMode = false;
+
+  const allItems = () => db.template.flatMap((s) => s.items);
+
+  /** An item is done when all its sub-checks are ticked (or its own box, if it has none). */
+  const isItemDone = (rec, item) =>
+    item.subs.length ? item.subs.every((s) => rec.subs[s.id]) : !!rec.checks[item.id];
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -274,8 +330,12 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
-        if (Array.isArray(saved.inspections)) db = { currentId: saved.currentId, inspections: saved.inspections.map(normalise) };
-        else if (saved.meta) db = { currentId: null, inspections: [normalise(saved)] };
+        if (Array.isArray(saved.inspections)) db = { currentId: saved.currentId, template: saved.template || defaultTemplate(), inspections: saved.inspections.map(normalise) };
+        else if (saved.meta) db = { currentId: null, template: defaultTemplate(), inspections: [normalise(saved)] };
+        // Old records: an item ticked before sub-checks existed counts as all its subs ticked
+        db.inspections.forEach((r) => allItems().forEach((it) => {
+          if (r.checks[it.id] && !it.subs.some((s) => s.id in r.subs)) it.subs.forEach((s) => { r.subs[s.id] = true; });
+        }));
       }
     } catch (e) { /* corrupt or blocked storage: start fresh */ }
     if (!db.inspections.length) db.inspections.push(emptyState());
@@ -285,7 +345,7 @@
 
   /* ---------- CRUD on inspection records ---------- */
 
-  const countChecks = (r) => Object.values(r.checks).filter(Boolean).length;
+  const countChecks = (r) => allItems().filter((it) => isItemDone(r, it)).length;
 
   /** Create: add a blank inspection and switch to it. */
   function createInspection() {
@@ -327,7 +387,7 @@
         <div class="card rec${r.id === db.currentId ? ' current' : ''}">
           <button type="button" class="rec-main" data-open="${r.id}">
             <div class="rec-title">${esc(r.meta.shopName || 'Untitled shop')}</div>
-            <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${TOTAL_ITEMS} ✓ · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
+            <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${allItems().length} ✓ · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
             <div class="rec-meta">${esc(when)}</div>
           </button>
           <button type="button" class="btn btn-danger" data-remove="${r.id}" aria-label="Delete inspection">🗑</button>
@@ -339,7 +399,7 @@
 
   /** Export: download every inspection (incl. photos) as a JSON backup file. */
   function exportData() {
-    const payload = { app: 'tb_inspection', version: 1, exportedAt: new Date().toISOString(), inspections: db.inspections };
+    const payload = { app: 'tb_inspection', version: 2, exportedAt: new Date().toISOString(), template: db.template, inspections: db.inspections };
     const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -351,9 +411,9 @@
 
   /** Import: merge records from a backup. Same id = replaced, new ids = added. */
   async function importData(file) {
-    let records;
+    let records, data;
     try {
-      const data = JSON.parse(await file.text());
+      data = JSON.parse(await file.text());
       // Accept: export file, raw db from LocalStorage, or the old single-inspection format
       records = Array.isArray(data.inspections) ? data.inspections : data.meta ? [data] : null;
       if (!records) throw new Error('format');
@@ -363,13 +423,17 @@
     const replaced = records.filter((r) => db.inspections.some((x) => x.id === r.id)).length;
     if (!confirm(`Import ${records.length} inspection(s)?` + (replaced ? `\n${replaced} existing record(s) with the same ID will be overwritten.` : ''))) return;
 
-    const backup = db.inspections;
+    const backup = db.inspections, backupTpl = db.template;
+    if (Array.isArray(data.template) && confirm('The backup also contains a checklist layout.\nReplace your current checklist (items, sub-checks, order) with it?')) {
+      db.template = data.template;
+    }
     const byId = new Map(db.inspections.map((r) => [r.id, r]));
     records.forEach((r) => byId.set(r.id, r));
     db.inspections = [...byId.values()].sort((a, b) => (b.savedAt || b.createdAt) - (a.savedAt || a.createdAt));
     state = db.inspections.find((r) => r.id === db.currentId) || db.inspections[0];
     db.currentId = state.id;
-    if (!save()) { db.inspections = backup; state = backup.find((r) => r.id === db.currentId) || backup[0]; return; } // roll back on quota error
+    if (!save()) { db.inspections = backup; db.template = backupTpl; state = backup.find((r) => r.id === db.currentId) || backup[0]; return; } // roll back on quota error
+    buildSections();
     applyStateToDom();
     toast(`⬆ Imported ${records.length} inspection(s)`);
   }
@@ -379,9 +443,14 @@
 
   /* ---------- Rendering ---------- */
 
-  /** Build accordion sections + checklist items once. */
+  /** Small edit-mode button. */
+  const edBtn = (act, id, label, aria) => `<button type="button" class="ed" data-act="${act}" data-id="${id}" aria-label="${aria}">${label}</button>`;
+
+  /** Render accordion sections + item cards from db.template (re-run after any template edit). */
   function buildSections() {
-    $('sections').innerHTML = SECTIONS.map((sec) => `
+    document.body.classList.toggle('editing', editMode);
+    $('editBtn').textContent = editMode ? '✔ Done Editing' : '✎ Edit Checklist';
+    $('sections').innerHTML = db.template.map((sec) => `
       <section class="card acc" data-sec="${sec.id}">
         <button type="button" class="acc-head" aria-expanded="false">
           <span>${esc(sec.title)}</span>
@@ -391,33 +460,131 @@
           </span>
         </button>
         <div class="acc-body">
-          ${sec.items.map(([title, desc], i) => { const key = `${sec.id}-${i}`; return `
-            <div class="item-card" data-card="${key}">
+          ${editMode ? `<div class="ed-row">${edBtn('edit-sec', sec.id, '✎ Rename section', 'Rename section')}</div>` : ''}
+          ${sec.items.map((item, i) => `
+            <div class="item-card" data-card="${item.id}">
+              ${editMode ? `<div class="ed-row">
+                ${edBtn('up', item.id, '▲', 'Move up')}${edBtn('down', item.id, '▼', 'Move down')}
+                ${edBtn('edit-item', item.id, '✎', 'Edit title')}${edBtn('del-item', item.id, '🗑', 'Delete item')}
+                <span class="ed-pos">${i + 1}/${sec.items.length}</span>
+              </div>` : ''}
               <label class="item">
-                <input type="checkbox" data-check="${key}">
+                <input type="checkbox" data-check="${item.id}">
                 <span class="box">✓</span>
-                <span class="item-text">
-                  <div class="item-title">${esc(title)}</div>
-                  <div class="item-desc">${esc(desc)}</div>
-                </span>
+                <span class="item-text"><div class="item-title">${esc(item.title)}</div></span>
               </label>
-              ${COMMANDS[key] ? `<div class="cmds">${COMMANDS[key].map((c) => `
+              <div class="subs">
+                ${item.subs.map((s) => `
+                  <div class="sub-row">
+                    <label class="sub">
+                      <input type="checkbox" data-sub="${s.id}" data-parent="${item.id}">
+                      <span class="sbox">✓</span>
+                      <span class="sub-text">${esc(s.text)}</span>
+                    </label>
+                    ${editMode ? edBtn('edit-sub', s.id, '✎', 'Edit check') + edBtn('del-sub', s.id, '🗑', 'Delete check') : ''}
+                  </div>`).join('')}
+                ${editMode ? `<button type="button" class="add-btn" data-act="add-sub" data-id="${item.id}">＋ Add check</button>` : ''}
+              </div>
+              ${item.cmds.length ? `<div class="cmds">${item.cmds.map((c) => `
                 <div class="cmd"><code>${esc(c.text)}</code>
                   <button type="button" class="copy" data-copy="${esc(c.text)}">📋 ${c.url ? 'Copy URL' : 'Copy'}</button></div>`).join('')}
               </div>` : ''}
               <div class="item-tools">
-                <button type="button" class="issue-btn" data-issue="${key}">⚠ Mark Issue</button>
-                <input type="text" class="note" data-note="${key}" placeholder="Notes / readings…" autocomplete="off">
+                <button type="button" class="issue-btn" data-issue="${item.id}">⚠ Mark Issue</button>
+                <input type="text" class="note" data-note="${item.id}" placeholder="Notes / readings…" autocomplete="off">
               </div>
-            </div>`; }).join('')}
+            </div>`).join('')}
+          ${editMode ? `<button type="button" class="add-btn add-item" data-act="add-item" data-id="${sec.id}">＋ Add item</button>` : ''}
         </div>
-      </section>`).join('');
+      </section>`).join('') +
+      (editMode ? `<button type="button" class="btn btn-ghost" style="width:100%;margin-bottom:var(--pad)" data-act="restore" data-id="">↺ Restore default checklist</button>` : '');
+  }
+
+  /* ---------- Checklist template editing ---------- */
+
+  /** Locate an item (or sub-check) inside the template. */
+  function findItem(id) {
+    for (const sec of db.template) {
+      const i = sec.items.findIndex((it) => it.id === id);
+      if (i > -1) return { sec, i, item: sec.items[i] };
+    }
+    return null;
+  }
+  function findSub(id) {
+    for (const item of allItems()) {
+      const j = item.subs.findIndex((s) => s.id === id);
+      if (j > -1) return { item, j, sub: item.subs[j] };
+    }
+    return null;
+  }
+
+  /** Ask for text; returns trimmed text, or null if cancelled/empty. */
+  const ask = (label, value = '') => { const v = prompt(label, value); return v && v.trim() ? v.trim() : null; };
+
+  /** Apply an edit-mode action, then re-render and persist. */
+  function editAction(act, id) {
+    let f, text;
+    switch (act) {
+      case 'up': case 'down': {
+        f = findItem(id);
+        const to = f.i + (act === 'up' ? -1 : 1);
+        if (to < 0 || to >= f.sec.items.length) return;
+        f.sec.items.splice(to, 0, f.sec.items.splice(f.i, 1)[0]);
+        break;
+      }
+      case 'edit-sec': {
+        const sec = db.template.find((s) => s.id === id);
+        if (!(text = ask('Section title', sec.title))) return;
+        sec.title = text; break;
+      }
+      case 'edit-item':
+        f = findItem(id);
+        if (!(text = ask('Item title', f.item.title))) return;
+        f.item.title = text; break;
+      case 'del-item':
+        f = findItem(id);
+        if (!confirm(`Delete "${f.item.title}" and its checks?`)) return;
+        f.sec.items.splice(f.i, 1); break;
+      case 'add-item': {
+        if (!(text = ask('New item title'))) return;
+        const sub = ask('First check (optional — Cancel to skip)');
+        const nid = uid();
+        db.template.find((s) => s.id === id).items.push({ id: nid, title: text, subs: sub ? [{ id: uid(), text: sub }] : [], cmds: [] });
+        break;
+      }
+      case 'add-sub':
+        if (!(text = ask('New check'))) return;
+        findItem(id).item.subs.push({ id: uid(), text });
+        break;
+      case 'edit-sub':
+        f = findSub(id);
+        if (!(text = ask('Edit check', f.sub.text))) return;
+        f.sub.text = text; break;
+      case 'del-sub':
+        f = findSub(id);
+        if (!confirm(`Delete check "${f.sub.text}"?`)) return;
+        f.item.subs.splice(f.j, 1); break;
+      case 'restore':
+        if (!confirm('Restore the default checklist? Your custom items, checks and order will be lost.')) return;
+        db.template = defaultTemplate(); break;
+      default: return;
+    }
+    const y = window.scrollY;
+    buildSections();
+    applyStateToDom();
+    window.scrollTo({ top: y });
+    if (act === 'up' || act === 'down') {
+      const card = document.querySelector(`[data-card="${id}"]`);
+      card.classList.add('moved'); setTimeout(() => card.classList.remove('moved'), 400);
+    }
+    save();
   }
 
   /** Push state into all DOM nodes (used on load and reset). */
   function applyStateToDom() {
     document.querySelectorAll('[data-meta]').forEach((el) => { el.value = state.meta[el.dataset.meta] || ''; });
-    document.querySelectorAll('[data-check]').forEach((el) => { el.checked = !!state.checks[el.dataset.check]; });
+    document.querySelectorAll('[data-sub]').forEach((el) => { el.checked = !!state.subs[el.dataset.sub]; });
+    syncItemChecks();
     document.querySelectorAll('[data-note]').forEach((el) => { el.value = state.notes[el.dataset.note] || ''; });
     refreshCards();
     document.querySelectorAll('.acc').forEach((el) => setOpen(el, !!state.open[el.dataset.sec]));
@@ -425,6 +592,18 @@
     renderGallery();
     renderSavedAt();
     renderList();
+  }
+
+  /** Derive each item's main checkbox from its sub-checks (partial = indeterminate). */
+  function syncItemChecks() {
+    allItems().forEach((item) => {
+      const el = document.querySelector(`[data-check="${item.id}"]`);
+      if (!el) return;
+      const done = isItemDone(state, item);
+      state.checks[item.id] = done;
+      el.checked = done;
+      el.indeterminate = !done && item.subs.some((s) => state.subs[s.id]);
+    });
   }
 
   /** Colour each item card: green when checked, red when marked as an issue. */
@@ -456,15 +635,15 @@
   /** Recalculate "x/y" badges and overall progress bar. */
   function updateCounts() {
     let done = 0, total = 0;
-    SECTIONS.forEach((sec) => {
-      const n = sec.items.filter((_, i) => state.checks[`${sec.id}-${i}`]).length;
+    db.template.forEach((sec) => {
+      const n = sec.items.filter((it) => isItemDone(state, it)).length;
       const badge = document.querySelector(`[data-badge="${sec.id}"]`);
       badge.textContent = `${n}/${sec.items.length}`;
-      badge.classList.toggle('done', n === sec.items.length);
+      badge.classList.toggle('done', sec.items.length > 0 && n === sec.items.length);
       done += n; total += sec.items.length;
     });
     $('totalCount').textContent = `${done}/${total}`;
-    $('totalBar').style.width = `${(done / total) * 100}%`;
+    $('totalBar').style.width = `${total ? (done / total) * 100 : 0}%`;
   }
 
   /** Render the 3-column photo grid with per-image delete handles. */
@@ -524,9 +703,19 @@
 
     // Checkboxes + accordion toggles (delegated)
     $('sections').addEventListener('change', (e) => {
-      const key = e.target.dataset.check;
-      if (!key) return;
-      state.checks[key] = e.target.checked;
+      const { check, sub } = e.target.dataset;
+      if (sub) {
+        state.subs[sub] = e.target.checked;
+      } else if (check) {
+        // Main box ticks/unticks all of its sub-checks
+        const item = findItem(check).item;
+        if (item.subs.length) {
+          item.subs.forEach((s) => { state.subs[s.id] = e.target.checked; });
+          document.querySelectorAll(`[data-parent="${check}"]`).forEach((el) => { el.checked = e.target.checked; });
+        }
+        state.checks[check] = e.target.checked;
+      } else return;
+      syncItemChecks();
       updateCounts();
       refreshCards();
       save();
@@ -585,7 +774,10 @@
     $('sections').addEventListener('click', async (e) => {
       const copy = e.target.closest('[data-copy]');
       const issue = e.target.closest('[data-issue]');
-      if (copy) {
+      const act = e.target.closest('[data-act]');
+      if (act) {
+        editAction(act.dataset.act, act.dataset.id);
+      } else if (copy) {
         const ok = await copyText(copy.dataset.copy);
         const label = copy.textContent;
         copy.textContent = ok ? '✔ Copied' : '✖ Failed';
@@ -604,6 +796,13 @@
       if (!k) return;
       state.notes[k] = e.target.value;
       save();
+    });
+
+    // Toggle checklist edit mode
+    $('editBtn').addEventListener('click', () => {
+      editMode = !editMode;
+      buildSections();
+      applyStateToDom();
     });
 
     // Inspection records
@@ -629,8 +828,8 @@
   }
 
   /* ---------- Init ---------- */
-  buildSections();
   load();
+  buildSections();
   applyStateToDom();
   bindEvents();
 })();
