@@ -90,6 +90,17 @@
   .item-card.moved { border-color: var(--accent) !important; }
   #editBtn { background: #2A2A2A; }
   body.editing #editBtn { background: var(--accent); }
+  body.editing .item-title, body.editing .sub-text { text-decoration: underline dotted #4FB3FF; text-underline-offset: 4px; }
+
+  /* Dialog */
+  .dlg { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; padding: var(--pad); }
+  .dlg.open { display: flex; }
+  .dlg-box { width: 100%; max-width: 480px; background: var(--card); border: 1px solid #333; border-radius: 12px; padding: var(--pad); }
+  .dlg-box p { margin: 0 0 12px; font-weight: 700; white-space: pre-line; }
+  .dlg-box textarea { width: 100%; padding: 10px 12px; background: var(--bg); color: var(--text); border: 2px solid var(--accent); border-radius: 8px; font: inherit; resize: vertical; margin-bottom: 12px; }
+  .dlg-box textarea:focus { outline: none; }
+  .dlg-actions { display: flex; gap: 10px; }
+  .dlg-actions .btn { flex: 1; }
   @media (max-width: 420px) { .cmds, .item-tools, .subs { margin-left: 0; } }
   .item input { position: absolute; opacity: 0; pointer-events: none; }
   .box {
@@ -148,6 +159,8 @@
   .panel.open { display: block; }
   .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: var(--pad); }
   .panel-head h2 { margin: 0; font-size: 1.2rem; }
+  .group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 8px; font-size: 1rem; color: #4FB3FF; }
+  .group-head:first-child { margin-top: 0; }
   .rec { display: flex; align-items: center; gap: 10px; }
   .rec.current { border-color: var(--accent); }
   .rec-main { flex: 1; min-width: 0; min-height: var(--tap); background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; padding: 0; font-size: 1rem; }
@@ -182,14 +195,6 @@
   <div id="recList"></div>
 </div>
 
-<!-- 3. Metadata profile -->
-<section class="card">
-  <label class="field" for="shopName">Shop Name / Counter No.</label>
-  <input type="text" id="shopName" data-meta="shopName" autocomplete="off" placeholder="e.g. Tech Plaza – Counter 14">
-  <label class="field" for="serial">Serial Number (S/N)</label>
-  <input type="text" id="serial" data-meta="serial" autocomplete="off" autocapitalize="characters" placeholder="e.g. PF4XXXXX">
-</section>
-
 <!-- Overall progress -->
 <section class="card">
   <div class="progress-label"><span>Overall Progress</span><span id="totalCount">0/13</span></div>
@@ -199,6 +204,17 @@
 
 <!-- 4. Checklist sections are rendered here by JS -->
 <div id="sections"></div>
+
+<!-- 3. Metadata profile -->
+<section class="card">
+  <label class="field" for="model">Model</label>
+  <input type="text" id="model" data-meta="model" autocomplete="off" list="modelList" placeholder="e.g. Lenovo ThinkBook 16 Gen 7 (Intel)">
+  <datalist id="modelList"></datalist>
+  <label class="field" for="shopName">Shop Name / Counter No.</label>
+  <input type="text" id="shopName" data-meta="shopName" autocomplete="off" placeholder="e.g. Tech Plaza – Counter 14">
+  <label class="field" for="serial">Serial Number (S/N)</label>
+  <input type="text" id="serial" data-meta="serial" autocomplete="off" autocapitalize="characters" placeholder="e.g. PF4XXXXX">
+</section>
 
 <!-- 5. Photo capture -->
 <section class="card">
@@ -217,6 +233,18 @@
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- In-page prompt/confirm dialog -->
+<div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgMsg">
+  <div class="dlg-box">
+    <p id="dlgMsg"></p>
+    <textarea id="dlgInput" rows="3"></textarea>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="dlgCancel">Cancel</button>
+      <button type="button" class="btn btn-ok" id="dlgOk">OK</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -270,7 +298,7 @@
    * Default item ids keep the old "s1-0" keys so existing saved checks still match.
    */
   function defaultTemplate() {
-    return SECTIONS.map((sec) => ({
+    return [specSection(), ...SECTIONS.map((sec) => ({
       id: sec.id,
       title: sec.title,
       items: sec.items.map(([title, desc], i) => {
@@ -281,12 +309,33 @@
           cmds: COMMANDS[id] || [],
         };
       }),
-    }));
+    }))];
+  }
+
+  /** Target laptop spec profile: each line is a single checkbox (no sub-checks). */
+  const SPEC_PROFILE = [
+    ['Model', 'Lenovo ThinkBook 16 Gen 7 (Intel)'],
+    ['Processor (CPU)', 'Intel Core Ultra 7 155H (16 Cores / 22 Threads, up to 4.8 GHz)'],
+    ['Memory (RAM)', '32GB DDR5-5600MHz (Dual-Channel)'],
+    ['Storage Slots', '2 x M.2 2280 PCIe 4.0 x4 NVMe Slots'],
+    ['Display Panel', '16.0-inch WUXGA (1920x1200) or 2.5K IPS, Anti-Glare (Matte, 300+ nits)'],
+    ['Keyboard', 'White LED Backlit Keyboard with Full Numpad'],
+    ['Battery Pack', '71Whr High-Capacity Battery (Health Status >= 80%)'],
+  ];
+  /** New inspections start with the target model; used to group the inspections list. */
+  const DEFAULT_MODEL = SPEC_PROFILE[0][1];
+
+  function specSection() {
+    return {
+      id: 's0',
+      title: '💻 Target Laptop Spec Profile',
+      items: SPEC_PROFILE.map(([label, value], i) => ({ id: `s0-${i}`, title: `${label}: ${value}`, subs: [], cmds: [] })),
+    };
   }
 
   /** Fresh inspection record schema. subs = sub-check states keyed by sub id. */
   const emptyState = (id = uid()) =>
-    ({ id, createdAt: Date.now(), meta: { shopName: '', serial: '' }, checks: {}, subs: {}, issues: {}, notes: {}, open: { s1: true }, images: [], savedAt: null });
+    ({ id, createdAt: Date.now(), meta: { model: DEFAULT_MODEL, shopName: '', serial: '' }, checks: {}, subs: {}, issues: {}, notes: {}, open: { s0: true, s1: true }, images: [], savedAt: null });
 
   /** db = checklist template + every inspection record; state = the record on screen. */
   let db = { currentId: null, template: defaultTemplate(), inspections: [] };
@@ -333,6 +382,8 @@
         const saved = JSON.parse(raw);
         if (Array.isArray(saved.inspections)) db = { currentId: saved.currentId, template: saved.template || defaultTemplate(), inspections: saved.inspections.map(normalise) };
         else if (saved.meta) db = { currentId: null, template: defaultTemplate(), inspections: [normalise(saved)] };
+        // Older saved checklists: add the spec profile section on top
+        if (!db.template.some((s) => s.id === 's0')) db.template.unshift(specSection());
         // Old records: an item ticked before sub-checks existed counts as all its subs ticked
         db.inspections.forEach((r) => allItems().forEach((it) => {
           if (r.checks[it.id] && !it.subs.some((s) => s.id in r.subs)) it.subs.forEach((s) => { r.subs[s.id] = true; });
@@ -384,10 +435,10 @@
   }
 
   /** Delete: remove a record; always keeps one record on screen. */
-  function deleteInspection(id) {
+  async function deleteInspection(id) {
     const rec = db.inspections.find((r) => r.id === id);
     const name = rec.meta.shopName || rec.meta.serial || 'this inspection';
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    if (!await uiConfirm(`Delete "${name}"? This cannot be undone.`)) return;
     db.inspections = db.inspections.filter((r) => r.id !== id);
     if (!db.inspections.length) db.inspections.push(emptyState());
     if (id === db.currentId) { state = db.inspections[0]; db.currentId = state.id; applyStateToDom(); }
@@ -399,7 +450,25 @@
   /** Render the saved-inspections list. */
   function renderList() {
     $('recCount').textContent = db.inspections.length;
-    $('recList').innerHTML = db.inspections.map((r) => {
+
+    // Group by model (case-insensitive); groups and records keep their current list order
+    const groups = new Map();
+    db.inspections.forEach((r) => {
+      const name = (r.meta.model || '').trim() || 'No model';
+      const key = name.toLowerCase();
+      if (!groups.has(key)) groups.set(key, { name, recs: [] });
+      groups.get(key).recs.push(r);
+    });
+    $('modelList').innerHTML = [...groups.values()].filter((g) => g.name !== 'No model')
+      .map((g) => `<option value="${esc(g.name)}">`).join('');
+
+    $('recList').innerHTML = [...groups.values()].map((g) => `
+      <h3 class="group-head"><span>${esc(g.name)}</span><span class="badge">${g.recs.length}</span></h3>
+      ${g.recs.map(renderRec).join('')}`).join('');
+  }
+
+  /** One row in the inspections list. */
+  function renderRec(r) {
       const when = new Date(r.savedAt || r.createdAt).toLocaleString();
       return `
         <div class="card rec${r.id === db.currentId ? ' current' : ''}">
@@ -410,7 +479,6 @@
           </button>
           <button type="button" class="btn btn-danger" data-remove="${r.id}" aria-label="Delete inspection">🗑</button>
         </div>`;
-    }).join('');
   }
 
   /* ---------- Data migration: export / import ---------- */
@@ -439,10 +507,10 @@
     } catch { toast('⚠ Not a valid inspection backup file', true); return; }
 
     const replaced = records.filter((r) => db.inspections.some((x) => x.id === r.id)).length;
-    if (!confirm(`Import ${records.length} inspection(s)?` + (replaced ? `\n${replaced} existing record(s) with the same ID will be overwritten.` : ''))) return;
+    if (!await uiConfirm(`Import ${records.length} inspection(s)?` + (replaced ? `\n${replaced} existing record(s) with the same ID will be overwritten.` : ''))) return;
 
     const backup = db.inspections, backupTpl = db.template;
-    if (Array.isArray(data.template) && confirm('The backup also contains a checklist layout.\nReplace your current checklist (items, sub-checks, order) with it?')) {
+    if (Array.isArray(data.template) && await uiConfirm('The backup also contains a checklist layout.\nReplace your current checklist (items, sub-checks, order) with it?')) {
       db.template = data.template;
     }
     const byId = new Map(db.inspections.map((r) => [r.id, r]));
@@ -537,10 +605,39 @@
   }
 
   /** Ask for text; returns trimmed text, or null if cancelled/empty. */
-  const ask = (label, value = '') => { const v = prompt(label, value); return v && v.trim() ? v.trim() : null; };
+  /**
+   * In-page dialog (replaces window.prompt/confirm, which some in-app browsers block).
+   * Resolves to the entered text (prompt), true (confirm), or null/false on Cancel.
+   */
+  function uiDialog(message, { input = false, value = '' } = {}) {
+    return new Promise((resolve) => {
+      const dlg = $('dlg'), field = $('dlgInput');
+      $('dlgMsg').textContent = message;
+      field.hidden = !input;
+      field.value = value;
+      dlg.classList.add('open');
+      setTimeout(() => (input ? (field.focus(), field.select()) : $('dlgOk').focus()), 50);
+      const done = (ok) => {
+        dlg.classList.remove('open');
+        $('dlgOk').onclick = $('dlgCancel').onclick = field.onkeydown = dlg.onclick = null;
+        resolve(input ? (ok ? field.value : null) : ok);
+      };
+      $('dlgOk').onclick = () => done(true);
+      $('dlgCancel').onclick = () => done(false);
+      dlg.onclick = (e) => { if (e.target === dlg) done(false); };
+      field.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); done(true); }
+        if (e.key === 'Escape') done(false);
+      };
+    });
+  }
+  const uiConfirm = (msg) => uiDialog(msg);
+  const uiPrompt = (msg, value) => uiDialog(msg, { input: true, value });
+
+  const ask = async (label, value = '') => { const v = await uiPrompt(label, value); return v && v.trim() ? v.trim() : null; };
 
   /** Apply an edit-mode action, then re-render and persist. */
-  function editAction(act, id) {
+  async function editAction(act, id) {
     let f, text;
     switch (act) {
       case 'up': case 'down': {
@@ -552,38 +649,38 @@
       }
       case 'edit-sec': {
         const sec = db.template.find((s) => s.id === id);
-        if (!(text = ask('Section title', sec.title))) return;
+        if (!(text = await ask('Section title', sec.title))) return;
         sec.title = text; break;
       }
       case 'edit-item':
         f = findItem(id);
-        if (!(text = ask('Item title', f.item.title))) return;
+        if (!(text = await ask('Item title', f.item.title))) return;
         f.item.title = text; break;
       case 'del-item':
         f = findItem(id);
-        if (!confirm(`Delete "${f.item.title}" and its checks?`)) return;
+        if (!await uiConfirm(`Delete "${f.item.title}" and its checks?`)) return;
         f.sec.items.splice(f.i, 1); break;
       case 'add-item': {
-        if (!(text = ask('New item title'))) return;
-        const sub = ask('First check (optional — Cancel to skip)');
+        if (!(text = await ask('New item title'))) return;
+        const sub = await ask('First check (optional — Cancel to skip)');
         const nid = uid();
         db.template.find((s) => s.id === id).items.push({ id: nid, title: text, subs: sub ? [{ id: uid(), text: sub }] : [], cmds: [] });
         break;
       }
       case 'add-sub':
-        if (!(text = ask('New check'))) return;
+        if (!(text = await ask('New check'))) return;
         findItem(id).item.subs.push({ id: uid(), text });
         break;
       case 'edit-sub':
         f = findSub(id);
-        if (!(text = ask('Edit check', f.sub.text))) return;
+        if (!(text = await ask('Edit check', f.sub.text))) return;
         f.sub.text = text; break;
       case 'del-sub':
         f = findSub(id);
-        if (!confirm(`Delete check "${f.sub.text}"?`)) return;
+        if (!await uiConfirm(`Delete check "${f.sub.text}"?`)) return;
         f.item.subs.splice(f.j, 1); break;
       case 'restore':
-        if (!confirm('Restore the default checklist? Your custom items, checks and order will be lost.')) return;
+        if (!await uiConfirm('Restore the default checklist? Your custom items, checks and order will be lost.')) return;
         db.template = defaultTemplate(); break;
       default: return;
     }
@@ -771,8 +868,8 @@
     });
 
     // Reset everything
-    $('resetBtn').addEventListener('click', () => {
-      if (!confirm('Reset this inspection? Its text, checks and photos will be erased.')) return;
+    $('resetBtn').addEventListener('click', async () => {
+      if (!await uiConfirm('Reset this inspection? Its text, checks and photos will be erased.')) return;
       // Clear the current record in place; other saved inspections are kept
       const fresh = emptyState(state.id);
       Object.keys(state).forEach((k) => delete state[k]);
@@ -815,6 +912,17 @@
       state.notes[k] = e.target.value;
       save();
     });
+
+    // Edit mode: tapping a title or check text edits it instead of ticking the box
+    $('sections').addEventListener('click', (e) => {
+      if (!editMode) return;
+      const title = e.target.closest('.item-title'), sub = e.target.closest('.sub-text');
+      if (!title && !sub) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (title) editAction('edit-item', title.closest('[data-card]').dataset.card);
+      else editAction('edit-sub', sub.closest('.sub').querySelector('[data-sub]').dataset.sub);
+    }, true);
 
     // Toggle checklist edit mode
     $('editBtn').addEventListener('click', () => {
