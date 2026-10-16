@@ -178,6 +178,7 @@
     <label class="btn btn-ghost" for="importInput" style="flex:1">⬆ Import</label>
     <input type="file" id="importInput" accept="application/json,.json" hidden>
   </div>
+  <button type="button" class="btn btn-ghost" id="sortBtn" style="width:100%;margin-bottom:var(--pad)">⇅ Sort by progress</button>
   <div id="recList"></div>
 </div>
 
@@ -347,6 +348,23 @@
 
   const countChecks = (r) => allItems().filter((it) => isItemDone(r, it)).length;
 
+  /** Every tickable box: each sub-check, or the item itself when it has no sub-checks. */
+  const countTicks = (r) => allItems().reduce((n, it) =>
+    n + (it.subs.length ? it.subs.filter((s) => r.subs[s.id]).length : (r.checks[it.id] ? 1 : 0)), 0);
+  const totalTicks = () => allItems().reduce((n, it) => n + (it.subs.length || 1), 0);
+
+  /** Sort on demand only: most complete first; tapping again reverses. Order is then kept as-is. */
+  let sortDesc = true;
+  function sortInspections() {
+    const dir = sortDesc ? -1 : 1;
+    db.inspections.sort((a, b) => dir * (countTicks(a) - countTicks(b)) || (b.savedAt || b.createdAt) - (a.savedAt || a.createdAt));
+    toast(sortDesc ? '⇅ Most complete first' : '⇅ Least complete first');
+    sortDesc = !sortDesc;
+    $('sortBtn').textContent = sortDesc ? '⇅ Sort by progress' : '⇅ Sort by progress (reverse)';
+    renderList();
+    save();
+  }
+
   /** Create: add a blank inspection and switch to it. */
   function createInspection() {
     const rec = emptyState();
@@ -387,7 +405,7 @@
         <div class="card rec${r.id === db.currentId ? ' current' : ''}">
           <button type="button" class="rec-main" data-open="${r.id}">
             <div class="rec-title">${esc(r.meta.shopName || 'Untitled shop')}</div>
-            <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${allItems().length} ✓ · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
+            <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${allItems().length} items · ${countTicks(r)}/${totalTicks()} checks · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
             <div class="rec-meta">${esc(when)}</div>
           </button>
           <button type="button" class="btn btn-danger" data-remove="${r.id}" aria-label="Delete inspection">🗑</button>
@@ -810,6 +828,7 @@
     $('listBtn').addEventListener('click', openPanel);
     $('closePanel').addEventListener('click', closePanel);
     $('exportBtn').addEventListener('click', exportData);
+    $('sortBtn').addEventListener('click', sortInspections);
     $('importInput').addEventListener('change', (e) => {
       const f = e.target.files[0];
       e.target.value = '';
