@@ -214,6 +214,8 @@
   <input type="text" id="shopName" data-meta="shopName" autocomplete="off" placeholder="e.g. Tech Plaza – Counter 14">
   <label class="field" for="serial">Serial Number (S/N)</label>
   <input type="text" id="serial" data-meta="serial" autocomplete="off" autocapitalize="characters" placeholder="e.g. PF4XXXXX">
+  <label class="field" for="price">Price</label>
+  <input type="text" id="price" data-meta="price" autocomplete="off" inputmode="decimal" placeholder="e.g. 185000">
 </section>
 
 <!-- 5. Photo capture -->
@@ -335,7 +337,7 @@
 
   /** Fresh inspection record schema. subs = sub-check states keyed by sub id. */
   const emptyState = (id = uid()) =>
-    ({ id, createdAt: Date.now(), meta: { model: DEFAULT_MODEL, shopName: '', serial: '' }, checks: {}, subs: {}, issues: {}, notes: {}, open: { s0: true, s1: true }, images: [], savedAt: null });
+    ({ id, createdAt: Date.now(), meta: { model: DEFAULT_MODEL, shopName: '', serial: '', price: '' }, checks: {}, subs: {}, issues: {}, notes: {}, open: { s0: true, s1: true }, images: [], savedAt: null });
 
   /** db = checklist template + every inspection record; state = the record on screen. */
   let db = { currentId: null, template: defaultTemplate(), inspections: [] };
@@ -473,7 +475,7 @@
       return `
         <div class="card rec${r.id === db.currentId ? ' current' : ''}">
           <button type="button" class="rec-main" data-open="${r.id}">
-            <div class="rec-title">${esc(r.meta.shopName || 'Untitled shop')}</div>
+            <div class="rec-title">${esc(r.meta.shopName || 'Untitled shop')}${r.meta.price ? ` · 💰 ${esc(r.meta.price)}` : ''}</div>
             <div class="rec-meta">S/N: ${esc(r.meta.serial || '—')} · ${countChecks(r)}/${allItems().length} items · ${countTicks(r)}/${totalTicks()} checks · ⚠ ${Object.values(r.issues || {}).filter(Boolean).length} · 📷 ${r.images.length}</div>
             <div class="rec-meta">${esc(when)}</div>
           </button>
